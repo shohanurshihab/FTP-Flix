@@ -166,6 +166,10 @@ const fmtTime = s => { s = Math.max(0, Math.floor(s || 0)); const h = (s / 3600)
 const fmtSize = b => !b ? '' : b >= 2 ** 30 ? (b / 2 ** 30).toFixed(1) + ' GB' : b >= 2 ** 20 ? Math.round(b / 2 ** 20) + ' MB' : Math.round(b / 1024) + ' KB';
 const host = u => { try { return new URL(u).host; } catch { return u; } };
 
+/* ---------- built-in keys (obfuscated, not real security: a browser app must be able to read them) ---------- */
+const _x = (b, k = 'ftpflix-7Qz') => [...atob(b)].map((c, i) => String.fromCharCode(c.charCodeAt(0) ^ k.charCodeAt(i % k.length))).join('');
+const DEF = { k: _x('AkFIUA1cHU8BNEtSREJeD1pPHwQyQlYRSQJYWxlPUWQ='), p: _x('DgAEFh9TVwJWPxkPER4SQQQXSVJ8SQRBQEgIDA5EWzRNUkVeEQMbE0hFIlQCEQZJUxwKQQoqDxQYDQ==') };
+const tmdbKey = () => S.tmdb || DEF.k, proxyUrl = () => S.proxy || DEF.p;
 /* ---------- state ---------- */
 const DEFAULT_SOURCES = [
   { name: 'CTG Fun', url: 'https://media.ctgfun.com/' },
@@ -174,7 +178,7 @@ const DEFAULT_SOURCES = [
 ];
 const S = {
   sources: LS.get('sources', DEFAULT_SOURCES),
-  tmdb: LS.get('tmdb', 'd586a5eb6e14028c3723c80e9d42abf5'),
+  tmdb: LS.get('tmdb', ''),            // your own override (empty = use built-in)
   proxy: LS.get('proxy', ''),         // CORS proxy template, e.g. https://example.workers.dev/?url={url}
   list: LS.get('list', []),           // [movie]
   recent: LS.get('recent', {}),       // movieUrl -> {m, ep, ts}
@@ -234,8 +238,8 @@ function toMovie(e) { const p = Names.parse(e.name, e.isDir); return { t: p.t, y
 async function xfetch(url) {
   try { return await fetch(url); }
   catch (e) {
-    if (!S.proxy) throw new Error('blocked by CORS or unreachable - set a CORS proxy in Settings');
-    return fetch(S.proxy.replace('{url}', encodeURIComponent(url)));
+    if (!proxyUrl()) throw new Error('blocked by CORS or unreachable - set a CORS proxy in Settings');
+    return fetch(proxyUrl().replace('{url}', encodeURIComponent(url)));
   }
 }
 /* ---------- directory listing ---------- */
@@ -339,13 +343,13 @@ function tlimit(fn) { return new Promise(res => { tqueue.push(async () => res(aw
 async function pump() { while (tq < 4 && tqueue.length) { tq++; const f = tqueue.shift(); f().finally(() => { tq--; pump(); }); } }
 async function tget(path, params = {}) {
   const u = new URL('https://api.themoviedb.org/3' + path);
-  u.searchParams.set('api_key', S.tmdb);
+  u.searchParams.set('api_key', tmdbKey());
   for (const k in params) u.searchParams.set(k, params[k]);
   const r = await fetch(u); if (!r.ok) throw new Error('TMDB ' + r.status); return r.json();
 }
 const mkey = m => m.i ? 'i' + m.i + (m.tv ? 't' : 'm') : keyOf(m);
 function getMeta(m) {
-  if (!S.tmdb) return Promise.resolve(null);
+  if (!tmdbKey()) return Promise.resolve(null);
   const k = mkey(m);
   if (S.meta[k]) return Promise.resolve(S.meta[k].none ? null : S.meta[k]);
   return tlimit(async () => {
@@ -452,15 +456,15 @@ async function Library(app) {
 }
 
 function Settings(app) {
-  const key = el('input', { type: 'text', value: S.tmdb, placeholder: 'TMDB API key (v3)' });
-  const pxy = el('input', { type: 'text', value: S.proxy, placeholder: 'https://your-worker.workers.dev/?url={url}', style: 'width:100%;max-width:520px' });
+  const key = el('input', { type: 'text', value: '', placeholder: 'Built-in key active. Paste a new TMDB key to replace it' });
+  const pxy = el('input', { type: 'text', value: '', placeholder: 'Built-in proxy active. Paste a new URL to replace it', style: 'width:100%;max-width:520px' });
   const nm = el('input', { placeholder: 'Name' }), ur = el('input', { placeholder: 'https://server/path/', style: 'width:320px' });
   app.append(el('h2', {}, 'Settings'),
-    el('div', { class: 'set' }, el('b', {}, 'TMDB key (posters, cast, trailers)'), el('br'), key, ' ', el('button', { onclick: () => { S.tmdb = key.value.trim(); save('tmdb'); S.meta = {}; save('meta'); toast('Saved'); } }, 'Save')),
+    el('div', { class: 'set' }, el('b', {}, 'TMDB key (posters, cast, trailers)'), el('br'), key, ' ', el('button', { onclick: () => { if (!key.value.trim()) return toast('Empty: still using the built-in key'); S.tmdb = key.value.trim(); save('tmdb'); S.meta = {}; save('meta'); key.value = ''; toast('New key saved'); } }, 'Save')),
     el('div', { class: 'set' }, el('b', {}, 'CORS proxy (for phones / browsers without a CORS extension)'), el('br'),
       el('span', { class: 'mu' }, 'Used only when a server blocks direct access. Use {url} where the address goes. Videos still play directly. A proxy outside your country cannot reach servers that only allow local ISPs.'), el('br'),
-      pxy, ' ', el('button', { onclick: () => { S.proxy = pxy.value.trim(); save('proxy'); cache.clear(); toast('Saved'); } }, 'Save'), ' ',
-      el('button', { onclick: () => { pxy.value = 'https://corsproxy.io/?url={url}'; } }, 'Use public example')),
+      pxy, ' ', el('button', { onclick: () => { if (!pxy.value.trim()) return toast('Empty: still using the built-in proxy'); S.proxy = pxy.value.trim(); save('proxy'); cache.clear(); pxy.value = ''; toast('New proxy saved'); } }, 'Save'), ' ',
+      el('button', { onclick: () => { S.proxy = ''; save('proxy'); toast('Back to built-in proxy'); } }, 'Reset to built-in')),
     el('div', { class: 'set' }, el('b', {}, 'Servers'),
       S.sources.map((s, i) => el('div', { class: 'ep' }, el('div', { class: 'n' }, s.name + ' — ' + s.url), el('button', { onclick: () => { S.sources.splice(i, 1); save('sources'); render(); } }, 'Remove'))),
       nm, ' ', ur, ' ', el('button', { onclick: () => { if (!nm.value || !/^https?:\/\//.test(ur.value)) return toast('Enter a name and full URL'); S.sources.push({ name: nm.value.trim(), url: ur.value.trim().replace(/\/?$/, '/') }); save('sources'); render(); } }, 'Add')),
