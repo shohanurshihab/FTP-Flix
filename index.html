@@ -53,7 +53,7 @@ h2{margin:26px 0 10px;font-size:18px}
 .ep .pg{width:70px;height:4px;background:#0008}
 .ep .pg i{display:block;height:100%;background:var(--ac)}
 .crumbs{color:var(--mu);margin:10px 0}.crumbs a{color:var(--ac);cursor:pointer}
-.modal{position:fixed;inset:0;background:#000c;z-index:50;display:flex;align-items:center;justify-content:center}
+.modal{position:fixed;inset:0;background:#000c;z-index:150;display:flex;align-items:center;justify-content:center}
 .modal .box{background:var(--sf);border-radius:14px;padding:20px;min-width:340px;max-width:92vw;max-height:80vh;overflow:auto}
 .opt{padding:12px;border-radius:8px;background:var(--sf2);margin:6px 0;cursor:pointer;display:flex;gap:10px;justify-content:space-between}
 .opt:hover{outline:1px solid var(--ac)}
@@ -64,6 +64,7 @@ h2{margin:26px 0 10px;font-size:18px}
 #pl{position:fixed;inset:0;background:#000;z-index:100;display:none;user-select:none}
 #pl.show{display:block}
 #pl video{width:100%;height:100%;object-fit:contain;background:#000}
+#pl video::cue{font-size:var(--cue,100%)}
 #pl .top,#pl .bot{position:absolute;left:0;right:0;padding:14px 20px;transition:opacity .25s;background:linear-gradient(#000c,transparent)}
 #pl .top{top:0;display:flex;gap:12px;align-items:center}
 #pl .bot{bottom:0;background:linear-gradient(transparent,#000d)}
@@ -115,10 +116,14 @@ h2{margin:26px 0 10px;font-size:18px}
       <button id="pMute">&#128266;</button>
       <input type="range" id="vol" min="0" max="100" value="100" style="width:100px">
       <select id="pSub" title="Subtitles"></select>
-      <select id="pAud" title="Audio track" style="display:none"></select>
+      <button id="pSM" title="Subtitles earlier (-0.5 s)">Sub -0.5</button><button id="pSP" title="Subtitles later (+0.5 s)">Sub +0.5</button>
+      <button id="pSz" title="Subtitle size">Aa</button><button id="pSF" title="Load a subtitle file from your device">+ Sub file</button>
+      <input type="file" id="subFile" accept=".srt,.vtt,.ass,.ssa" hidden>
+      <select id="pAud" title="Audio track"></select>
       <select id="pSpd" title="Speed"></select>
       <button id="pAsp" title="Aspect: Fit / Fill / Zoom">Fit</button>
       <button id="pLock" title="Lock controls">&#128274;</button>
+      <button id="pSrv" title="Switch to another server for this title">Server</button>
       <button id="pExt" title="Copy link to open in VLC / MX Player">VLC link</button>
       <button id="pShare">Share</button>
       <button id="pPip" title="Picture in picture">PiP</button>
@@ -572,10 +577,40 @@ async function Detail(app) {
   }
 }
 
+/* ---------- subtitle conversion (SRT / VTT / ASS / SSA -> WebVTT, with delay) ---------- */
+function decodeText(buf) {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+  catch { return new TextDecoder('windows-1252').decode(buf); }
+}
+const tsec = (h, m, s, ms) => (+h || 0) * 3600 + +m * 60 + +s + +String(ms).padEnd(3, '0') / 1000;
+function parseSrt(text) {
+  const out = [], re = /(?:(\d+):)?(\d\d):(\d\d)[.,](\d{1,3})\s*-->\s*(?:(\d+):)?(\d\d):(\d\d)[.,](\d{1,3})[^\n]*\n([\s\S]*?)(?=\n\s*\n|$)/g;
+  text = text.replace(/\r/g, '');
+  for (const m of text.matchAll(re)) out.push({ s: tsec(m[1], m[2], m[3], m[4]), e: tsec(m[5], m[6], m[7], m[8]), t: m[9].trim() });
+  return out;
+}
+function parseAss(text) {
+  const out = []; let fields = null;
+  const ts = x => { const m = x.trim().match(/(\d+):(\d\d):(\d\d)[.](\d{1,3})/); return m ? tsec(m[1], m[2], m[3], m[4].length === 2 ? m[4] + '0' : m[4]) : 0; };
+  for (const line of text.replace(/\r/g, '').split('\n')) {
+    if (/^Format:/i.test(line) && !fields) { const f = line.slice(7).split(',').map(x => x.trim().toLowerCase()); if (f.includes('text')) fields = f; }
+    else if (/^Dialogue:/i.test(line) && fields) {
+      const parts = line.slice(9).split(','), n = fields.length, v = parts.slice(0, n - 1).concat(parts.slice(n - 1).join(','));
+      const t = v[n - 1].replace(/\{[^}]*\}/g, '').replace(/\\[Nn]/g, '\n').replace(/\\h/g, ' ').trim();
+      if (t) out.push({ s: ts(v[fields.indexOf('start')]), e: ts(v[fields.indexOf('end')]), t });
+    }
+  }
+  return out.sort((a, b) => a.s - b.s);
+}
+const parseSubs = (text, ext) => (ext === 'ass' || ext === 'ssa') ? parseAss(text) : parseSrt(text);
+function vttTime(x) { x = Math.max(0, x); const h = Math.floor(x / 3600), m = Math.floor(x % 3600 / 60), s = x % 60; return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + s.toFixed(3).padStart(6, '0'); }
+const toVtt = (cues, off) => 'WEBVTT\n\n' + cues.map(c => vttTime(c.s + off) + ' --> ' + vttTime(c.e + off) + '\n' + c.t).join('\n\n');
+const epKey = n => { const m = n.match(/s(\d{1,2})e(\d{1,3})/i) || n.match(/(\d{1,2})x(\d{2,3})/i); return m ? (+m[1]) + 'x' + (+m[2]) : Names.norm(Names.base(n)); };
+
 /* ---------- player ---------- */
 const Player = (() => {
   const P = $('#pl'), V = $('#v'), seek = $('#seek'), vol = $('#vol'), subSel = $('#pSub'), audSel = $('#pAud'), spd = $('#pSpd');
-  let st = null, idle, tick, trackEl = null, aspect = 0, subUrl = null;
+  let st = null, idle, tick, trackEl = null, aspect = 0, subUrl = null, cues = null, subOff = 0, subLabel = '', cueSz = 0;
   const ASP = [['Fit', 'contain'], ['Fill', 'fill'], ['Zoom', 'cover']];
   [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].forEach(s => spd.append(el('option', { value: s, selected: s === 1 }, s + '×')));
   const msg = t => { const e = $('#pMsg'); e.innerHTML = ''; e.append(t.nodeType ? t : document.createTextNode(t)); e.style.display = 'block'; clearTimeout(msg.t); msg.t = setTimeout(() => e.style.display = 'none', 1400); };
@@ -597,27 +632,33 @@ const Player = (() => {
     subSel.value = S.subsOn && st.cands.length ? String(eng >= 0 ? eng : 0) : '';
     applySub();
   }
+  function clearTrack() { if (trackEl) { trackEl.remove(); trackEl = null; } if (subUrl) { URL.revokeObjectURL(subUrl); subUrl = null; } }
+  function showCues() {
+    clearTrack();
+    subUrl = URL.createObjectURL(new Blob([toVtt(cues, subOff)], { type: 'text/vtt' }));
+    trackEl = el('track', { kind: 'subtitles', src: subUrl, default: true, label: subLabel }); V.append(trackEl);
+    trackEl.track.mode = 'showing'; trackEl.addEventListener('load', () => { trackEl.track.mode = 'showing'; });
+  }
   async function applySub() {
-    if (trackEl) { trackEl.remove(); trackEl = null; }
-    if (subUrl) { URL.revokeObjectURL(subUrl); subUrl = null; }
+    clearTrack(); cues = null; subOff = 0;
     if (subSel.value === '') return;
-    const s = st.cands[+subSel.value];
+    const sb = st.cands[+subSel.value];
     try {
-      if (/\.(ass|ssa)$/i.test(s.name)) return msg('ASS subtitles are not supported in browsers');
-      let t = await (await xfetch(s.url)).text();
-      if (!/^﻿?WEBVTT/.test(t)) t = 'WEBVTT\n\n' + t.replace(/\r/g, '').replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
-      subUrl = URL.createObjectURL(new Blob([t], { type: 'text/vtt' }));
-      trackEl = el('track', { kind: 'subtitles', src: subUrl, default: true, label: s.name }); V.append(trackEl);
-      trackEl.addEventListener('load', () => { trackEl.track.mode = 'showing'; }); trackEl.track.mode = 'showing';
+      const buf = sb.buf || await (await xfetch(sb.url)).arrayBuffer();
+      cues = parseSubs(decodeText(buf), Names.ext(sb.name));
+      if (!cues.length) return msg('No subtitle lines found in this file');
+      subLabel = sb.name; showCues();
     } catch { msg('Could not load subtitles'); }
   }
-  function load(i) {
-    saveProg(); st.idx = i; const v = cur();
+  const shiftSub = d => { if (!cues) return msg('Turn a subtitle on first'); subOff = Math.round((subOff + d) * 10) / 10; showCues(); msg('Subtitle delay ' + (subOff > 0 ? '+' : '') + subOff.toFixed(1) + ' s'); };
+  function load(i, skipSave) {
+    if (!skipSave) saveProg(); st.idx = i; const v = cur();
     V.src = v.url; $('#pTitle').textContent = st.movie.t + (st.vids.length > 1 ? ' — ' + v.name : '');
     $('#pNext').style.display = st.vids.length > 1 ? '' : 'none';
     st.cands = st.folder ? subsFor(st.folder, v) : [];
-    setSubs(); audSel.style.display = 'none';
-    const p = S.prog[v.url]; V.addEventListener('loadedmetadata', () => { if (p && !S.done[v.url] && p.t > 10) { V.currentTime = p.t; msg('Resumed at ' + fmtTime(p.t)); } }, { once: true });
+    setSubs(); audSel.replaceChildren(el('option', {}, 'Audio: default'));
+    const at = st.startAt, p = S.prog[v.url]; st.startAt = null;
+    V.addEventListener('loadedmetadata', () => { if (at > 1) V.currentTime = at; else if (p && !S.done[v.url] && p.t > 10) { V.currentTime = p.t; msg('Resumed at ' + fmtTime(p.t)); } }, { once: true });
     V.playbackRate = +spd.value;
     V.play().catch(() => {});
   }
@@ -649,18 +690,39 @@ const Player = (() => {
   V.onended = () => { if (S.autoNext && st && st.idx < st.vids.length - 1) next(); else { if (st) { S.done[cur().url] = 1; save('done'); } close(); } };
   V.onerror = () => {
     V.pause();
-    const b = el('button', { class: 'pri', onclick: copyLink }, 'Copy link for VLC');
-    msg(el('div', {}, "This browser can't play this file (codec/format).", el('br'), b)); $('#pMsg').style.display = 'block';
+    const b = el('button', { class: 'pri', onclick: copyLink }, 'Copy link for VLC'), b2 = el('button', { onclick: switchServer }, 'Try another server');
+    msg(el('div', {}, "This browser can't play this file (codec/format), or the server is unreachable.", el('br'), b, ' ', b2)); clearTimeout(msg.t); $('#pMsg').style.display = 'block';
   };
+  let audioOk = false;
   V.onloadedmetadata = () => {
-    const at = V.audioTracks; // only in some browsers
-    if (at && at.length > 1) {
-      audSel.replaceChildren(...[...at].map((t, i) => el('option', { value: i }, t.label || t.language || 'Audio ' + (i + 1)))); audSel.style.display = '';
-      audSel.value = [...at].findIndex(t => t.enabled);
-    }
+    const at = V.audioTracks; audioOk = !!(at && at.length > 1);
+    if (audioOk) { audSel.replaceChildren(...[...at].map((t, i) => el('option', { value: i }, t.label || t.language || 'Audio ' + (i + 1)))); audSel.value = [...at].findIndex(t => t.enabled); }
   };
-  audSel.onchange = () => { [...V.audioTracks].forEach((t, i) => t.enabled = i === +audSel.value); };
+  audSel.onmousedown = () => { if (!audioOk) toast("This browser can't list or switch embedded audio tracks (Chrome: chrome://flags > Experimental Web Platform features may enable it). Use the VLC link for multi-audio files."); };
+  audSel.onchange = () => { if (audioOk) [...V.audioTracks].forEach((t, i) => t.enabled = i === +audSel.value); };
   subSel.onchange = applySub;
+  async function switchServer() {
+    const alts = alternates(st.movie);
+    if (alts.length < 2) return toast('No other server has this title');
+    const a = await pickServer(alts); if (!a || a.u === st.movie.u) return;
+    const cv = cur(), t = V.currentTime;
+    try {
+      let f = null, vids;
+      if (a.f) { f = await folder(a.u); vids = f.videos; } else vids = [{ name: a.r, url: a.u, size: 0 }];
+      if (!vids.length) return toast('That server has no playable files here');
+      const k = epKey(cv.name); let i = vids.findIndex(v => epKey(v.name) === k); if (i < 0) i = Math.min(st.idx, vids.length - 1);
+      saveProg(); st = { ...st, movie: a, vids, folder: f, startAt: t }; load(i, true); toast('Switched to ' + sourceName(a.u));
+    } catch (e) { toast('Failed: ' + e.message); }
+  }
+  $('#pSrv').onclick = switchServer;
+  $('#pSM').onclick = () => shiftSub(-0.5); $('#pSP').onclick = () => shiftSub(0.5);
+  $('#pSz').onclick = () => { cueSz = (cueSz + 1) % 4; const z = [100, 130, 170, 220][cueSz]; V.style.setProperty('--cue', z + '%'); msg('Subtitle size ' + z + '%'); };
+  $('#pSF').onclick = () => $('#subFile').click();
+  $('#subFile').onchange = async e => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f || !st) return;
+    st.cands.push({ name: f.name, buf: await f.arrayBuffer() });
+    subSel.append(el('option', { value: st.cands.length - 1 }, f.name.slice(-28))); subSel.style.display = ''; subSel.value = String(st.cands.length - 1); applySub();
+  };
   spd.onchange = () => { V.playbackRate = +spd.value; };
   $('#pAsp').onclick = () => { aspect = (aspect + 1) % 3; V.style.objectFit = ASP[aspect][1]; $('#pAsp').textContent = ASP[aspect][0]; };
   $('#pLock').onclick = () => P.classList.add('locked'); $('#pUnlock').onclick = () => { P.classList.remove('locked'); wake(); };
