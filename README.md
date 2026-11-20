@@ -22,3 +22,9 @@ export default { async fetch(req) {
 ```
 Then use `https://YOUR-WORKER.workers.dev/?url={url}` as the proxy. A proxy outside Bangladesh cannot reach servers that only allow local ISPs.
 Video files play directly and never need the proxy. MKV/HEVC/AC3 may not play in a browser; use "VLC link".
+
+## Run on your PC (works when servers only allow your local ISP, and gives phones a link)
+1. Download `index.html` and `proxy.py` into one folder.
+2. Run `python proxy.py` (Python 3, nothing to install; on Windows try `py proxy.py`).
+3. PC: open http://localhost:8787. Phone on the same Wi-Fi: open the `http://<PC-IP>:8787` address it prints.
+The proxy is set automatically; no extension needed.
