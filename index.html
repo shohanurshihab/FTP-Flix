@@ -72,7 +72,15 @@ h2{margin:26px 0 10px;font-size:18px}
 #pl.idle{cursor:none}
 #pl .tl{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #pl .ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
-#pl .ctl button,#pl .top button,#pl .ctl select{padding:6px 10px;background:#fff1;border-color:#fff2}
+#pl .ctl button,#pl .top button,#pl .ctl select,#pl .panel button,#pl .panel select{padding:6px 10px;background:#fff1;border-color:#fff2}
+#pl .ctl .sp{flex:1}
+#pl .ctl{gap:8px}
+#pl button.on{border-color:var(--ac);color:var(--ac)}
+#pl .panel{display:none;position:absolute;right:20px;bottom:100%;margin-bottom:-4px;background:#101319f2;border:1px solid #fff2;border-radius:12px;padding:10px 14px;min-width:320px;max-width:calc(100vw - 24px);max-height:60vh;overflow:auto}
+#pl .panel.open{display:block}
+#pl .grp{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0}
+#pl .grp label{width:68px;color:var(--mu);font-size:12px}
+#pl .panel select{max-width:230px;flex:1}
 #pl .ctl select{max-width:170px}
 #pl input[type=range]{padding:0;accent-color:var(--ac);background:none;border:0}
 #seek{width:100%}
@@ -93,7 +101,7 @@ h2{margin:26px 0 10px;font-size:18px}
 .set input[type=text],.set input:not([type]){max-width:100%}
 #pl .top{padding:8px 10px}#pl .bot{padding:8px 10px}#pl .ctl{gap:5px}
 #pl .ctl button,#pl .top button,#pl .ctl select{padding:6px 8px;font-size:13px}
-#pl .ctl select{max-width:110px}#vol,#pPip,#pMute{display:none}
+#pl .panel{right:6px;left:6px;min-width:0}#pTime{font-size:12px;order:5}#pl .ctl .sp{display:none}#pl .ctl{justify-content:space-between}#vol,#pMute{display:none}
 }
 </style>
 </head>
@@ -108,26 +116,29 @@ h2{margin:26px 0 10px;font-size:18px}
   <div class="bot">
     <input type="range" id="seek" min="0" max="1000" value="0">
     <div class="ctl">
-      <button id="pPlay">&#9654;</button>
+      <button id="pPlay" title="Play / pause (Space)">&#9654;</button>
       <button id="pM10" title="-10 s (&#8592;)">&#8630; 10</button>
       <button id="pP10" title="+10 s (&#8594;)">10 &#8631;</button>
       <button id="pSkip" title="Skip 85 s">&#9193; 85s</button>
       <span id="pTime" class="mu">0:00 / 0:00</span>
+      <span class="sp"></span>
       <button id="pMute">&#128266;</button>
-      <input type="range" id="vol" min="0" max="100" value="100" style="width:100px">
-      <select id="pSub" title="Subtitles"></select>
-      <button id="pSM" title="Subtitles earlier (-0.5 s)">Sub -0.5</button><button id="pSP" title="Subtitles later (+0.5 s)">Sub +0.5</button>
-      <button id="pSz" title="Subtitle size">Aa</button><button id="pSF" title="Load a subtitle file from your device">+ Sub file</button>
-      <input type="file" id="subFile" accept=".srt,.vtt,.ass,.ssa" hidden>
-      <select id="pAud" title="Audio track"></select>
-      <select id="pSpd" title="Speed"></select>
-      <button id="pAsp" title="Aspect: Fit / Fill / Zoom">Fit</button>
-      <button id="pLock" title="Lock controls">&#128274;</button>
+      <input type="range" id="vol" min="0" max="100" value="100" style="width:90px">
+      <button id="pCC" title="Subtitles on / off (C)">CC</button>
       <button id="pSrv" title="Switch to another server for this title">Server</button>
-      <button id="pExt" title="Copy link to open in VLC / MX Player">VLC link</button>
-      <button id="pShare">Share</button>
-      <button id="pPip" title="Picture in picture">PiP</button>
+      <button id="pTools" title="Subtitles, audio, speed and more">&#9881; Tools</button>
       <button id="pFs" title="Fullscreen (F)">&#9974;</button>
+    </div>
+    <div class="panel" id="pPanel">
+      <div class="grp"><label>Subtitles</label><select id="pSub" title="Subtitles"></select></div>
+      <div class="grp"><label></label>
+        <button id="pSM" title="Subtitles earlier (-0.5 s)">Sub -0.5</button><button id="pSP" title="Subtitles later (+0.5 s)">Sub +0.5</button>
+        <button id="pSz" title="Subtitle size">Aa</button><button id="pSF" title="Load a subtitle file from your device">+ Sub file</button>
+        <input type="file" id="subFile" accept=".srt,.vtt,.ass,.ssa" hidden></div>
+      <div class="grp"><label>Audio</label><select id="pAud" title="Audio track"></select></div>
+      <div class="grp"><label>Speed</label><select id="pSpd" title="Speed"></select></div>
+      <div class="grp"><label>Picture</label><button id="pAsp" title="Aspect: Fit / Fill / Zoom">Fit</button><button id="pPip" title="Picture in picture">PiP</button></div>
+      <div class="grp"><label>More</label><button id="pLock" title="Lock controls">&#128274; Lock</button><button id="pShare">Share</button><button id="pExt" title="Copy link to open in VLC / MX Player">VLC link</button></div>
     </div>
   </div>
 </div>
@@ -294,14 +305,13 @@ async function folder(url) {
   return { videos, subs, dirs };
 }
 function subsFor(f, v) {
-  const b = Names.base(v.name).toLowerCase();
-  const matched = f.subs.filter(s => s.name.toLowerCase().startsWith(b));
-  const pool = matched.length || f.videos.length === 1 ? f.subs : [];
-  return pool.slice().sort((a, c) => {
-    const ka = (a.name.toLowerCase().startsWith(b) ? 0 : 2) + (/eng/i.test(a.name) ? 0 : 1);
-    const kc = (c.name.toLowerCase().startsWith(b) ? 0 : 2) + (/eng/i.test(c.name) ? 0 : 1);
-    return ka - kc;
-  }).slice(0, 10);
+  const b = Names.base(v.name).toLowerCase(), ek = epKey(v.name), hasEp = /s\d{1,2}e\d{1,3}|\d{1,2}x\d{2,3}/i.test(v.name);
+  const isMatch = x => x.name.toLowerCase().startsWith(b) || (hasEp && epKey(x.name) === ek);
+  const matched = f.subs.filter(isMatch);
+  const pool = f.subs;
+  const out = pool.slice().sort((x, c) => ((isMatch(x) ? 0 : 2) + (/eng/i.test(x.name) ? 0 : 1)) - ((isMatch(c) ? 0 : 2) + (/eng/i.test(c.name) ? 0 : 1))).slice(0, 12);
+  out.matched = matched.length > 0 || f.videos.length === 1;
+  return out;
 }
 
 /* ---------- search index ---------- */
@@ -614,7 +624,7 @@ const Player = (() => {
   const ASP = [['Fit', 'contain'], ['Fill', 'fill'], ['Zoom', 'cover']];
   [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].forEach(s => spd.append(el('option', { value: s, selected: s === 1 }, s + '×')));
   const msg = t => { const e = $('#pMsg'); e.innerHTML = ''; e.append(t.nodeType ? t : document.createTextNode(t)); e.style.display = 'block'; clearTimeout(msg.t); msg.t = setTimeout(() => e.style.display = 'none', 1400); };
-  const wake = () => { P.classList.remove('idle'); clearTimeout(idle); idle = setTimeout(() => !V.paused && P.classList.add('idle'), 3000); };
+  const wake = () => { P.classList.remove('idle'); clearTimeout(idle); idle = setTimeout(() => !V.paused && !$('#pPanel').classList.contains('open') && P.classList.add('idle'), 3000); };
   const cur = () => st.vids[st.idx];
   const saveProg = () => {
     if (!st || !V.duration) return;
@@ -624,13 +634,22 @@ const Player = (() => {
     S.recent[st.movie.u] = { m: st.movie, ep: u, ts: Date.now() };
     save('prog'); save('done'); save('recent');
   };
+  let lastSub = '';
+  const embedded = () => [...V.textTracks].filter(t => (!trackEl || t !== trackEl.track) && (t.kind === 'subtitles' || t.kind === 'captions'));
+  function refreshEmbedded() {
+    const keep = subSel.value;
+    [...subSel.options].filter(o => o.value.startsWith('e')).forEach(o => o.remove());
+    embedded().forEach((t, i) => subSel.append(el('option', { value: 'e' + i }, 'Embedded: ' + (t.label || t.language || 'track ' + (i + 1)))));
+    if ([...subSel.options].some(o => o.value === keep)) subSel.value = keep;
+    ccState();
+  }
+  function ccState() { $('#pCC').classList.toggle('on', subSel.value !== ''); }
   function setSubs() {
     subSel.replaceChildren(el('option', { value: '' }, 'Subtitles: off'));
-    st.cands.forEach((s, i) => subSel.append(el('option', { value: i }, s.name.length > 28 ? s.name.slice(-28) : s.name)));
-    subSel.style.display = st.cands.length ? '' : 'none';
+    st.cands.forEach((s, i) => subSel.append(el('option', { value: i }, s.name.length > 34 ? s.name.slice(-34) : s.name)));
     const eng = st.cands.findIndex(s => /eng/i.test(s.name));
-    subSel.value = S.subsOn && st.cands.length ? String(eng >= 0 ? eng : 0) : '';
-    applySub();
+    subSel.value = S.subsOn && st.cands.length && st.cands.matched ? String(eng >= 0 ? eng : 0) : '';
+    applySub(); refreshEmbedded();
   }
   function clearTrack() { if (trackEl) { trackEl.remove(); trackEl = null; } if (subUrl) { URL.revokeObjectURL(subUrl); subUrl = null; } }
   function showCues() {
@@ -640,8 +659,15 @@ const Player = (() => {
     trackEl.track.mode = 'showing'; trackEl.addEventListener('load', () => { trackEl.track.mode = 'showing'; });
   }
   async function applySub() {
-    clearTrack(); cues = null; subOff = 0;
-    if (subSel.value === '') return;
+    clearTrack(); cues = null; subOff = 0; ccState();
+    const emb = embedded();
+    if (subSel.value !== '') lastSub = subSel.value;
+    if (subSel.value === '' || subSel.value.startsWith('e')) {
+      const k = subSel.value.startsWith('e') ? +subSel.value.slice(1) : -1;
+      emb.forEach((t, i) => { t.mode = i === k ? 'showing' : 'disabled'; });
+      return;
+    }
+    emb.forEach(t => { t.mode = 'disabled'; });
     const sb = st.cands[+subSel.value];
     try {
       const buf = sb.buf || await (await xfetch(sb.url)).arrayBuffer();
@@ -693,10 +719,17 @@ const Player = (() => {
     const b = el('button', { class: 'pri', onclick: copyLink }, 'Copy link for VLC'), b2 = el('button', { onclick: switchServer }, 'Try another server');
     msg(el('div', {}, "This browser can't play this file (codec/format), or the server is unreachable.", el('br'), b, ' ', b2)); clearTimeout(msg.t); $('#pMsg').style.display = 'block';
   };
-  let audioOk = false;
+  let audioOk = false, hinted = false;
+  const hintAudio = () => { if (hinted) return; hinted = true; toast('Multi-audio file: this browser plays the default track and cannot switch. Use the VLC link to choose English.'); };
   V.onloadedmetadata = () => {
     const at = V.audioTracks; audioOk = !!(at && at.length > 1);
-    if (audioOk) { audSel.replaceChildren(...[...at].map((t, i) => el('option', { value: i }, t.label || t.language || 'Audio ' + (i + 1)))); audSel.value = [...at].findIndex(t => t.enabled); }
+    if (audioOk) {
+      audSel.replaceChildren(...[...at].map((t, i) => el('option', { value: i }, t.label || t.language || 'Audio ' + (i + 1))));
+      let en = [...at].findIndex(t => /^en/i.test(t.language || '') || /eng/i.test(t.label || ''));
+      if (en < 0) en = [...at].findIndex(t => t.enabled);
+      [...at].forEach((t, i) => t.enabled = i === en); audSel.value = en;
+    } else if (/dual|multi|hindi|tamil|telugu/i.test(cur().name) && !audioOk) hintAudio();
+    refreshEmbedded();
   };
   audSel.onmousedown = () => { if (!audioOk) toast("This browser can't list or switch embedded audio tracks (Chrome: chrome://flags > Experimental Web Platform features may enable it). Use the VLC link for multi-audio files."); };
   audSel.onchange = () => { if (audioOk) [...V.audioTracks].forEach((t, i) => t.enabled = i === +audSel.value); };
@@ -715,13 +748,26 @@ const Player = (() => {
     } catch (e) { toast('Failed: ' + e.message); }
   }
   $('#pSrv').onclick = switchServer;
+  $('#pCC').onclick = () => {
+    if (subSel.value !== '') { subSel.value = ''; }
+    else {
+      const o = [...subSel.options].find(o => o.value === lastSub) || [...subSel.options].find(o => o.value !== '');
+      if (!o) { msg('No subtitles found for this video. Open Tools > + Sub file to load one.'); return; }
+      subSel.value = o.value;
+    }
+    applySub();
+  };
+  const panel = $('#pPanel');
+  $('#pTools').onclick = () => { panel.classList.toggle('open'); $('#pTools').classList.toggle('on', panel.classList.contains('open')); wake(); };
+  V.addEventListener('click', () => { panel.classList.remove('open'); $('#pTools').classList.remove('on'); });
+  V.textTracks.addEventListener('addtrack', refreshEmbedded);
   $('#pSM').onclick = () => shiftSub(-0.5); $('#pSP').onclick = () => shiftSub(0.5);
   $('#pSz').onclick = () => { cueSz = (cueSz + 1) % 4; const z = [100, 130, 170, 220][cueSz]; V.style.setProperty('--cue', z + '%'); msg('Subtitle size ' + z + '%'); };
   $('#pSF').onclick = () => $('#subFile').click();
   $('#subFile').onchange = async e => {
     const f = e.target.files[0]; e.target.value = ''; if (!f || !st) return;
     st.cands.push({ name: f.name, buf: await f.arrayBuffer() });
-    subSel.append(el('option', { value: st.cands.length - 1 }, f.name.slice(-28))); subSel.style.display = ''; subSel.value = String(st.cands.length - 1); applySub();
+    subSel.append(el('option', { value: st.cands.length - 1 }, f.name.slice(-34))); subSel.value = String(st.cands.length - 1); applySub();
   };
   spd.onchange = () => { V.playbackRate = +spd.value; };
   $('#pAsp').onclick = () => { aspect = (aspect + 1) % 3; V.style.objectFit = ASP[aspect][1]; $('#pAsp').textContent = ASP[aspect][0]; };
@@ -739,7 +785,7 @@ const Player = (() => {
     else if (k === 'ArrowRight') { e.preventDefault(); jump(10); } else if (k === 'ArrowLeft') { e.preventDefault(); jump(-10); }
     else if (k === 'ArrowUp') { e.preventDefault(); V.volume = Math.min(1, V.volume + .05); msg('Volume ' + Math.round(V.volume * 100) + '%'); }
     else if (k === 'ArrowDown') { e.preventDefault(); V.volume = Math.max(0, V.volume - .05); msg('Volume ' + Math.round(V.volume * 100) + '%'); }
-    else if (k === 'f' || k === 'F') $('#pFs').click(); else if (k === 'm' || k === 'M') V.muted = !V.muted;
+    else if (k === 'c' || k === 'C') $('#pCC').click(); else if (k === 'f' || k === 'F') $('#pFs').click(); else if (k === 'm' || k === 'M') V.muted = !V.muted;
     else if (k === 'n' || k === 'N') next(); else if (k === 'Escape' && !document.fullscreenElement) close();
     wake();
   });
